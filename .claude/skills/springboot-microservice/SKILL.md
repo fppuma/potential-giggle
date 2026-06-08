@@ -330,6 +330,99 @@ Base URL: http://localhost:8080/api/v1/{entities}
 (include create and list as minimum)
 ```
 
+## Template: GlobalExceptionHandler
+
+Every microservice must include a `GlobalExceptionHandler` in the `exception` package.
+
+- Do NOT use `@ResponseStatus` on exception classes — the handler is the single source of truth for HTTP status codes.
+- All error responses share the same structure: `timestamp`, `status`, and `error` (or `errors` for validation).
+
+```java
+package com.mycompany.{microservice}.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleResourceNotFound(ResourceNotFoundException ex) {
+        return buildError(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationErrors(MethodArgumentNotValidException ex) {
+        Map<String, String> fieldErrors = new HashMap<>();
+        for (FieldError error : ex.getBindingResult().getFieldErrors()) {
+            fieldErrors.put(error.getField(), error.getDefaultMessage());
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.BAD_REQUEST.value());
+        body.put("errors", fieldErrors);
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
+        return buildError(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred");
+    }
+
+    private ResponseEntity<Map<String, Object>> buildError(HttpStatus status, String message) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", status.value());
+        body.put("error", message);
+        return ResponseEntity.status(status).body(body);
+    }
+}
+```
+
+### Template: ResourceNotFoundException
+
+```java
+package com.mycompany.{microservice}.exception;
+
+public class ResourceNotFoundException extends RuntimeException {
+
+    public ResourceNotFoundException(String resource, Long id) {
+        super(resource + " not found with id: " + id);
+    }
+}
+```
+
+### Error response shapes
+
+**Not found / generic error:**
+```json
+{
+  "timestamp": "2026-06-07T10:30:00",
+  "status": 404,
+  "error": "Customer not found with id: 99"
+}
+```
+
+**Validation error (`@Valid` failed):**
+```json
+{
+  "timestamp": "2026-06-07T10:30:00",
+  "status": 400,
+  "errors": {
+    "email": "must be a well-formed email address",
+    "name": "must not be blank"
+  }
+}
+```
+
 ## General rules
 
 - Use `@RequiredArgsConstructor` from Lombok, never field injection (`@Autowired`)
